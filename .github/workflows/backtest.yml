@@ -1,0 +1,128 @@
+name: Backtest & Generate Reports
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: 'Trading pair (e.g., BTCUSDT, ETHUSDT, SOLUSDT)'
+        required: true
+        default: 'BTCUSDT'
+      start_date:
+        description: 'Start date (YYYY-MM-DD)'
+        required: true
+        default: '2026-01-01'
+      end_date:
+        description: 'End date (YYYY-MM-DD)'
+        required: true
+        default: '2026-02-14'
+      strategy:
+        description: 'Strategy type'
+        required: true
+        default: 'ml'
+        type: choice
+        options:
+          - ml
+          - traditional
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install plotly pytest-html
+
+      - name: Create directories
+        run: |
+          mkdir -p .tmp/market_data
+          mkdir -p .tmp/features
+          mkdir -p models
+          mkdir -p reports
+
+      - name: Restore LSTM model (for ML strategy)
+        if: ${{ github.event.inputs.strategy == 'ml' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            models/
+            best_configs.json
+          key: lstm-model-
+          restore-keys: |
+            lstm-model-
+
+      - name: Fetch historical data
+        run: |
+          python -m app.data.fetcher \
+            --ticker "${{ github.event.inputs.ticker }}" \
+            --timeframe "15" \
+            --start "${{ github.event.inputs.start_date }}" \
+            --end "${{ github.event.inputs.end_date }}"
+        env:
+          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+
+      - name: Calculate features
+        run: |
+          python -m app.features.calculator \
+            --input ".tmp/market_data/${{ github.event.inputs.ticker }}_15m.csv"
+
+      - name: Run ML backtest
+        if: ${{ github.event.inputs.strategy == 'ml' }}
+        run: |
+          python -m app.strategies.backtest_ml \
+            --ticker "${{ github.event.inputs.ticker }}" \
+            --start "${{ github.event.inputs.start_date }}" \
+            --end "${{ github.event.inputs.end_date }}" \
+            --output-json ".tmp/backtest_results.json"
+
+      - name: Run traditional backtest
+        if: ${{ github.event.inputs.strategy == 'traditional' }}
+        run: |
+          python -m app.strategies.backtest
+
+      - name: Generate HTML report
+        run: |
+          python -m app.reporting.html \
+            --backtest-results ".tmp/backtest_results.json" \
+            --output "reports/backtest_${{ github.event.inputs.ticker }}_${{ github.event.inputs.start_date }}_to_${{ github.event.inputs.end_date }}.html" \
+            --title "Backtest: ${{ github.event.inputs.ticker }} (${{ github.event.inputs.start_date }} to ${{ github.event.inputs.end_date }})"
+
+      - name: Upload backtest reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-report-${{ github.event.inputs.ticker }}-${{ github.run_number }}
+          path: reports/
+          retention-days: 90
+
+      - name: Send notification
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            EMOJI="✅"
+          else
+            EMOJI="❌"
+          fi
+
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="Markdown" \
+            -d text="${EMOJI} *Backtest Complete*
+
+          Ticker: \`${{ github.event.inputs.ticker }}\`
+          Period: ${{ github.event.inputs.start_date }} to ${{ github.event.inputs.end_date }}
+          Strategy: ${{ github.event.inputs.strategy }}
+
+          [Download Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"

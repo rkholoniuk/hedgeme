@@ -1,0 +1,171 @@
+name: Training & Backtest Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      ticker:
+        description: 'Trading pair'
+        required: true
+        default: 'BTCUSDT'
+        type: choice
+        options:
+          - BTCUSDT
+          - ETHUSDT
+          - SOLUSDT
+      days:
+        description: 'Days of historical data'
+        required: true
+        default: '30'
+      epochs:
+        description: 'LSTM training epochs'
+        required: true
+        default: '50'
+      skip_training:
+        description: 'Skip training (use cached model)'
+        required: false
+        default: false
+        type: boolean
+
+  schedule:
+    - cron: '0 4 * * *'  # Daily at 4 AM UTC
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create directories
+        run: |
+          mkdir -p .tmp/market_data
+          mkdir -p .tmp/features
+          mkdir -p models
+          mkdir -p reports
+
+      - name: Restore cached model
+        if: ${{ github.event.inputs.skip_training == 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            models/
+            best_configs.json
+          key: lstm-model-
+          restore-keys: |
+            lstm-model-
+
+      - name: Set pipeline parameters
+        id: params
+        run: |
+          # Use inputs or defaults for scheduled runs
+          echo "ticker=${{ github.event.inputs.ticker || 'BTCUSDT' }}" >> $GITHUB_OUTPUT
+          echo "days=${{ github.event.inputs.days || '30' }}" >> $GITHUB_OUTPUT
+          echo "epochs=${{ github.event.inputs.epochs || '50' }}" >> $GITHUB_OUTPUT
+          echo "skip_training=${{ github.event.inputs.skip_training || 'false' }}" >> $GITHUB_OUTPUT
+
+      - name: Fetch historical data
+        run: |
+          python -m app.data.fetcher \
+            --ticker "${{ steps.params.outputs.ticker }}" \
+            --timeframe "15" \
+            --limit $(( ${{ steps.params.outputs.days }} * 96 ))
+        env:
+          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+
+      - name: Calculate features
+        run: |
+          python -m app.features.calculator \
+            --input ".tmp/market_data/${{ steps.params.outputs.ticker }}_15m.csv"
+
+      - name: Train LSTM model
+        if: ${{ steps.params.outputs.skip_training != 'true' }}
+        run: |
+          python -m app.ml.lstm \
+            --features ".tmp/features/${{ steps.params.outputs.ticker }}_15m_features.csv" \
+            --epochs ${{ steps.params.outputs.epochs }} \
+            --output "models/lstm_volume_predictor.keras"
+
+      - name: Run backtest
+        run: |
+          python -m app.strategies.backtest
+
+      - name: Generate HTML report
+        run: |
+          # Create results JSON
+          cat > .tmp/backtest_results.json << EOF
+          {
+            "ticker": "${{ steps.params.outputs.ticker }}",
+            "days": ${{ steps.params.outputs.days }},
+            "epochs": ${{ steps.params.outputs.epochs }},
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+          python -m app.reporting.html \
+            --backtest-results ".tmp/backtest_results.json" \
+            --output "reports/pipeline_${{ steps.params.outputs.ticker }}_$(date +%Y%m%d).html" \
+            --title "Pipeline Report: ${{ steps.params.outputs.ticker }} ($(date +%Y-%m-%d))"
+
+      - name: Cache trained model
+        if: ${{ steps.params.outputs.skip_training != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            models/
+            best_configs.json
+          key: lstm-model-${{ github.run_number }}-${{ github.sha }}
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-report-${{ steps.params.outputs.ticker }}-${{ github.run_number }}
+          path: |
+            reports/
+            models/*.png
+          retention-days: 30
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-${{ steps.params.outputs.ticker }}-${{ github.run_number }}
+          path: models/
+          retention-days: 90
+
+      - name: Send success notification
+        if: success()
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="Markdown" \
+            -d text="✅ *Pipeline Complete*
+
+          Ticker: \`${{ steps.params.outputs.ticker }}\`
+          Days: ${{ steps.params.outputs.days }}
+          Epochs: ${{ steps.params.outputs.epochs }}
+
+          [Download Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+      - name: Send failure notification
+        if: failure()
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="❌ *Pipeline Failed*
+
+          Ticker: ${{ steps.params.outputs.ticker }}
+          Run: ${{ github.run_number }}
+
+          [View Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"

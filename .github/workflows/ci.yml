@@ -1,0 +1,108 @@
+name: CI - Tests & Linting
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-html
+
+      - name: Create required directories
+        run: |
+          mkdir -p .tmp/market_data
+          mkdir -p .tmp/features
+          mkdir -p models
+          mkdir -p reports
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ \
+            -v \
+            --ignore=tests/test_data_fetching.py \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=html:reports/coverage \
+            --html=reports/test_report.html \
+            --self-contained-html
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Run integration tests (Bybit API)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          pytest tests/test_data_fetching.py \
+            -v \
+            -m integration \
+            --html=reports/integration_report.html \
+            --self-contained-html
+        env:
+          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-py${{ matrix.python-version }}
+          path: reports/
+          retention-days: 14
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install linting tools
+        run: |
+          pip install ruff
+
+      - name: Run Ruff linter
+        run: |
+          ruff check . --output-format=github || true
+
+      - name: Check formatting
+        run: |
+          ruff format --check . || true

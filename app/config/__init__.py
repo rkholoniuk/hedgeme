@@ -1,0 +1,1 @@
+"""Trading configuration module."""

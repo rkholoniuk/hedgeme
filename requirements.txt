@@ -1,0 +1,42 @@
+# Trading Bot Dependencies
+# Compatible with Python 3.12
+
+# Core Trading Framework
+lumibot>=3.0.0
+
+# Machine Learning (Python 3.12 compatible)
+tensorflow>=2.16.0
+scikit-learn>=1.4.0
+
+# Data Processing
+pandas>=2.2.0
+numpy>=1.26.0
+
+# Technical Indicators
+# Note: ta-lib requires system installation first: brew install ta-lib (macOS) or apt-get install ta-lib (Linux)
+TA-Lib>=0.4.28
+pandas-ta>=0.3.14b0
+ta>=0.11.0
+
+# Exchange APIs
+ccxt>=4.2.0  # Includes Bybit, Kraken, and 100+ exchanges
+
+# Visualization
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.18.0
+
+# Utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+requests>=2.31.0
+tqdm>=4.66.0
+
+# Storage
+joblib>=1.3.0
+
+# Development (optional)
+pytest>=8.0.0
+pytest-cov>=4.1.0
+pytest-html>=4.1.0
+ruff>=0.2.0

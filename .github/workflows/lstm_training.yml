@@ -1,0 +1,107 @@
+name: LSTM Daily Training
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # Every day at 4 AM UTC
+  workflow_dispatch:      # Can also run manually
+
+jobs:
+  train-lstm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run parameter optimization
+        run: |
+          python -m app.strategies.optimizer
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      - name: Fetch training data
+        run: |
+          python -m app.data.fetcher \
+            --ticker "BTCUSDT" \
+            --timeframe "15" \
+            --limit 2000
+        env:
+          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+
+      - name: Calculate features
+        run: |
+          python -m app.features.calculator \
+            --input ".tmp/market_data/BTCUSDT_15m.csv"
+
+      - name: Train LSTM model
+        run: |
+          python -m app.ml.lstm \
+            --features ".tmp/features/BTCUSDT_15m_features.csv" \
+            --epochs 50 \
+            --output "models/lstm_volume_predictor.keras"
+
+      - name: Run backtest and generate report
+        run: |
+          pip install plotly
+          python -m app.strategies.backtest_ml \
+            --ticker "BTC-USD" \
+            --start "2026-01-01" \
+            --end "2026-02-14" \
+            --output-json ".tmp/backtest_results.json"
+          python -m app.reporting.html \
+            --backtest-results ".tmp/backtest_results.json" \
+            --output "reports/backtest_report.html" \
+            --title "LSTM Backtest Report - $(date +%Y-%m-%d)"
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-reports-${{ github.run_number }}
+          path: reports/
+          retention-days: 30
+
+      - name: Cache trained model
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            models/
+            best_configs.json
+            optimization_results.csv
+          key: lstm-model-${{ github.run_number }}-${{ github.sha }}
+
+      - name: Send success notification
+        if: success()
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="✅ LSTM Training Complete
+
+          Run: ${{ github.run_number }}
+          Time: $(date -u)
+
+          Model cached and ready for trading."
+
+      - name: Send failure notification
+        if: failure()
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="❌ LSTM Training Failed
+
+          Run: ${{ github.run_number }}
+          Time: $(date -u)
+
+          Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

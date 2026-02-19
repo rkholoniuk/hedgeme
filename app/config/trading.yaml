@@ -1,0 +1,40 @@
+# Trading Bot Configuration
+# Controls strategy behavior without modifying code
+
+# Signal Generation
+ACCEL_BARS_REQUIRED: 2          # Consecutive candles needed for traditional signal
+USE_LSTM: true                  # Enable/disable LSTM predictions
+LSTM_WEIGHT: 0.5                # Trust in LSTM vs traditional (0.0-1.0)
+LSTM_CONFIRMATION_REQUIRED: false  # If true, both signals must agree
+
+# LSTM Model
+LSTM_LOOKBACK: 10               # Input sequence length
+LSTM_HIDDEN_SIZE: 32            # First layer neurons
+LSTM_DROPOUT: 0.2               # Regularization strength
+LSTM_EPOCHS: 50                 # Training epochs (with early stopping)
+LSTM_BATCH_SIZE: 32             # Training batch size
+
+# Risk Management
+POSITION_SIZE: 0.05             # 5% of capital per trade (as in use case)
+STOP_LOSS_PCT: 0.015            # 1.5% stop loss (ATR-based in practice)
+TAKE_PROFIT_PCT: 0.015          # 1.5% take profit
+USE_TRAILING_STOP: true         # Enable trailing stop
+MAX_CONCURRENT_POSITIONS: 1     # Prevent overexposure
+LEVERAGE: 3                     # Leverage multiplier (use case shows 3x)
+
+# Market Conditions
+VOLATILITY_MULTIPLIER: 3.0      # Reduce position if ATR > 3x normal
+MIN_VOLUME_THRESHOLD: 1000      # Skip trades if volume too low
+
+# Traditional Indicators
+RSI_OVERSOLD: 30                # RSI buy threshold
+RSI_OVERBOUGHT: 70              # RSI sell threshold
+ADX_THRESHOLD: 25               # Minimum trend strength
+
+# Retraining
+RETRAIN_FREQUENCY_DAYS: 7       # Retrain model weekly
+MIN_PREDICTION_ACCURACY: 0.55   # Retrain if accuracy drops below 55%
+
+# Trading Schedule
+INTERVAL_MINUTES: 15            # Trading interval (matches use case)
+LOOKBACK_CANDLES: 200           # Historical candles to fetch for context

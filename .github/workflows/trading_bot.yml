@@ -1,0 +1,75 @@
+name: Trading Bot with LSTM
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Every 15 minutes
+  workflow_dispatch:
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore LSTM model
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            models/
+            best_configs.json
+          key: lstm-model-
+          restore-keys: |
+            lstm-model-
+
+      - name: Check model exists
+        run: |
+          if [ ! -f "models/lstm_volume_predictor.keras" ]; then
+            echo "⚠️  No trained model found. Run training workflow first."
+            exit 1
+          fi
+          echo "✅ Model found: $(ls -lh models/)"
+
+      - name: Run trading bot
+        run: python -m app.strategies.live
+        env:
+          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
+          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TICKER: ${{ vars.TICKER || 'BTCUSDT' }}
+          TIMEFRAME: ${{ vars.TIMEFRAME || '15' }}
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trading-logs-${{ github.run_number }}
+          path: |
+            *.log
+            .tmp/
+          retention-days: 7
+
+      - name: Send failure notification
+        if: failure()
+        run: |
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="🚨 Trading Bot Error
+
+          Time: $(date -u)
+          Run: ${{ github.run_number }}
+
+          Check logs: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

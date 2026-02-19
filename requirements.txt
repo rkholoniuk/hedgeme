@@ -13,9 +13,10 @@ pandas>=2.2.0
 numpy>=1.26.0
 
 # Technical Indicators
-# Note: ta-lib requires system installation first: brew install ta-lib (macOS) or apt-get install ta-lib (Linux)
+# Note: TA-Lib requires system installation first:
+#   macOS: brew install ta-lib
+#   Ubuntu: see .github/workflows/pipeline.yml for build steps
 TA-Lib>=0.4.28
-pandas-ta>=0.3.14b0
 ta>=0.11.0
 
 # Exchange APIs

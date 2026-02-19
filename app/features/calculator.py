@@ -20,14 +20,14 @@ import logging
 import sys
 from typing import Tuple
 
-# Try importing ta-lib, fall back to pandas-ta
+# Try importing ta-lib, fall back to ta library
 try:
     import talib
     USE_TALIB = True
 except ImportError:
-    import pandas_ta as ta
+    import ta as ta_lib
     USE_TALIB = False
-    logging.warning("ta-lib not found, using pandas-ta (slower). Install: brew install ta-lib && pip install TA-Lib")
+    logging.warning("ta-lib not found, using ta library (slower). Install: brew install ta-lib && pip install TA-Lib")
 
 # Configure logging
 logging.basicConfig(
@@ -158,8 +158,7 @@ class FeatureCalculator:
         if USE_TALIB:
             df['RSI'] = talib.RSI(df['close'], timeperiod=period)
         else:
-            rsi_indicator = ta.rsi(df['close'], length=period)
-            df['RSI'] = rsi_indicator
+            df['RSI'] = ta_lib.momentum.RSIIndicator(df['close'], window=period).rsi()
 
         df['RSI'] = df['RSI'].fillna(50)  # Neutral value for NaN
 
@@ -185,8 +184,7 @@ class FeatureCalculator:
         if USE_TALIB:
             df['ADX'] = talib.ADX(df['high'], df['low'], df['close'], timeperiod=period)
         else:
-            adx_data = ta.adx(df['high'], df['low'], df['close'], length=period)
-            df['ADX'] = adx_data[f'ADX_{period}'] if f'ADX_{period}' in adx_data.columns else adx_data.iloc[:, -1]
+            df['ADX'] = ta_lib.trend.ADXIndicator(df['high'], df['low'], df['close'], window=period).adx()
 
         df['ADX'] = df['ADX'].fillna(0)
 
@@ -211,8 +209,7 @@ class FeatureCalculator:
         if USE_TALIB:
             df['OBV'] = talib.OBV(df['close'], df['volume'])
         else:
-            obv_indicator = ta.obv(df['close'], df['volume'])
-            df['OBV'] = obv_indicator
+            df['OBV'] = ta_lib.volume.OnBalanceVolumeIndicator(df['close'], df['volume']).on_balance_volume()
 
         df['OBV'] = df['OBV'].fillna(0)
 
@@ -239,8 +236,7 @@ class FeatureCalculator:
         if USE_TALIB:
             df['ATR'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=period)
         else:
-            atr_indicator = ta.atr(df['high'], df['low'], df['close'], length=period)
-            df['ATR'] = atr_indicator
+            df['ATR'] = ta_lib.volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=period).average_true_range()
 
         df['ATR'] = df['ATR'].fillna(df['ATR'].mean())
 

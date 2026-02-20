@@ -32,6 +32,12 @@ on:
 jobs:
   pipeline:
     runs-on: ubuntu-latest
+    # Uncomment to use pre-built image (faster, requires image to be built first):
+    # container:
+    #   image: ghcr.io/${{ github.repository }}-runner:latest
+    #   credentials:
+    #     username: ${{ github.actor }}
+    #     password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -89,10 +95,8 @@ jobs:
           python -m app.data.fetcher \
             --ticker "${{ steps.params.outputs.ticker }}" \
             --timeframe "15" \
-            --limit $(( ${{ steps.params.outputs.days }} * 96 ))
-        env:
-          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
-          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+            --limit $(( ${{ steps.params.outputs.days }} * 96 )) \
+            --exchange binance
 
       - name: Calculate features
         run: |

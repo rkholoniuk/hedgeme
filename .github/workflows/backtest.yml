@@ -27,6 +27,12 @@ on:
 jobs:
   backtest:
     runs-on: ubuntu-latest
+    # Uncomment to use pre-built image (faster, requires image to be built first):
+    # container:
+    #   image: ghcr.io/${{ github.repository }}-runner:latest
+    #   credentials:
+    #     username: ${{ github.actor }}
+    #     password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -38,11 +44,19 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      - name: Install TA-Lib system library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
+          sudo ldconfig
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install plotly pytest-html
 
       - name: Create directories
         run: |
@@ -68,10 +82,8 @@ jobs:
             --ticker "${{ github.event.inputs.ticker }}" \
             --timeframe "15" \
             --start "${{ github.event.inputs.start_date }}" \
-            --end "${{ github.event.inputs.end_date }}"
-        env:
-          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
-          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+            --end "${{ github.event.inputs.end_date }}" \
+            --exchange binance
 
       - name: Calculate features
         run: |

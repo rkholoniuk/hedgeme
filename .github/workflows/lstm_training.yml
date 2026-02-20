@@ -8,6 +8,12 @@ on:
 jobs:
   train-lstm:
     runs-on: ubuntu-latest
+    # Uncomment to use pre-built image (faster, requires image to be built first):
+    # container:
+    #   image: ghcr.io/${{ github.repository }}-runner:latest
+    #   credentials:
+    #     username: ${{ github.actor }}
+    #     password: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -18,6 +24,15 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+
+      - name: Install TA-Lib system library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential wget
+          wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+          tar -xzf ta-lib-0.4.0-src.tar.gz
+          cd ta-lib && ./configure --prefix=/usr && make && sudo make install
+          sudo ldconfig
 
       - name: Install dependencies
         run: |
@@ -36,10 +51,8 @@ jobs:
           python -m app.data.fetcher \
             --ticker "BTCUSDT" \
             --timeframe "15" \
-            --limit 2000
-        env:
-          BYBIT_API_KEY: ${{ secrets.BYBIT_API_KEY }}
-          BYBIT_API_SECRET: ${{ secrets.BYBIT_API_SECRET }}
+            --limit 2000 \
+            --exchange binance
 
       - name: Calculate features
         run: |
@@ -55,7 +68,6 @@ jobs:
 
       - name: Run backtest and generate report
         run: |
-          pip install plotly
           python -m app.strategies.backtest_ml \
             --ticker "BTC-USD" \
             --start "2026-01-01" \

@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-Fetch historical OHLCV data from Bybit API.
+Fetch historical OHLCV data from crypto exchanges.
 
-Bybit advantages over Kraken:
-- Higher rate limits (10 requests/sec vs 1 request/3sec)
-- Better WebSocket support
-- More crypto pairs
-- Lower fees
+Supports multiple exchanges via ccxt:
+- Bybit (default) - Higher rate limits, more pairs
+- Binance (fallback) - Works from GitHub Actions (Bybit blocks US IPs)
 
 Usage:
     # Supported tickers: BTCUSDT, ETHUSDT, SOLUSDT
     python -m app.data.fetcher --ticker "BTCUSDT" --timeframe "15" --limit 200
+    python -m app.data.fetcher --ticker "ETHUSDT" --exchange binance --limit 200
     python -m app.data.fetcher --ticker "ETHUSDT" --start "2024-01-01" --end "2025-12-31"
 """
 
@@ -33,25 +32,50 @@ logger = logging.getLogger(__name__)
 
 
 class BybitDataFetcher:
-    """Fetches OHLCV data from Bybit with rate limit handling."""
+    """Fetches OHLCV data from crypto exchanges with rate limit handling."""
 
-    def __init__(self, api_key: Optional[str] = None, api_secret: Optional[str] = None):
+    SUPPORTED_EXCHANGES = ['bybit', 'binance']
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        exchange: str = 'bybit'
+    ):
         """
-        Initialize Bybit connection.
+        Initialize exchange connection.
 
         Args:
-            api_key: Bybit API key (optional for public data)
-            api_secret: Bybit API secret (optional for public data)
+            api_key: API key (optional for public data)
+            api_secret: API secret (optional for public data)
+            exchange: Exchange name ('bybit' or 'binance')
         """
-        self.exchange = ccxt.bybit({
+        self.exchange_name = exchange.lower()
+        self.exchange = self._create_exchange(exchange, api_key, api_secret)
+
+    def _create_exchange(
+        self,
+        exchange_name: str,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None
+    ):
+        """Create ccxt exchange instance."""
+        config = {
             'apiKey': api_key,
             'secret': api_secret,
             'enableRateLimit': True,
-            'rateLimit': 100,  # 10 requests per second (100ms between calls)
-            'options': {
-                'defaultType': 'spot',  # or 'linear' for USDT perpetuals
-            }
-        })
+        }
+
+        if exchange_name.lower() == 'bybit':
+            config['rateLimit'] = 100  # 10 req/sec
+            config['options'] = {'defaultType': 'spot'}
+            return ccxt.bybit(config)
+        elif exchange_name.lower() == 'binance':
+            config['rateLimit'] = 100  # 10 req/sec
+            config['options'] = {'defaultType': 'spot'}
+            return ccxt.binance(config)
+        else:
+            raise ValueError(f"Unsupported exchange: {exchange_name}. Use: {self.SUPPORTED_EXCHANGES}")
 
     def _normalize_ticker(self, ticker: str) -> str:
         """
@@ -99,7 +123,7 @@ class BybitDataFetcher:
         Returns:
             DataFrame with columns: [timestamp, open, high, low, close, volume]
         """
-        logger.info(f"Fetching {ticker} {timeframe}m data from Bybit")
+        logger.info(f"Fetching {ticker} {timeframe}m data from {self.exchange_name}")
 
         try:
             # Load markets to validate ticker
@@ -280,18 +304,21 @@ def save_to_csv(df: pd.DataFrame, output_path: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Fetch OHLCV data from Bybit",
+        description="Fetch OHLCV data from crypto exchanges",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Fetch last 200 candles (Supported: BTCUSDT, ETHUSDT, SOLUSDT)
-  python tools/trading/fetch_bybit_data.py --ticker "BTCUSDT" --timeframe "15" --limit 200
+  python -m app.data.fetcher --ticker "BTCUSDT" --timeframe "15" --limit 200
+
+  # Use Binance instead of Bybit (useful for CI/GitHub Actions)
+  python -m app.data.fetcher --ticker "BTCUSDT" --exchange binance --limit 200
 
   # Fetch historical data range
-  python tools/trading/fetch_bybit_data.py --ticker "ETHUSDT" --start "2024-01-01" --end "2025-12-31"
+  python -m app.data.fetcher --ticker "ETHUSDT" --start "2024-01-01" --end "2025-12-31"
 
   # Custom output path
-  python tools/trading/fetch_bybit_data.py --ticker "SOLUSDT" --output ".tmp/market_data/sol_custom.csv"
+  python -m app.data.fetcher --ticker "SOLUSDT" --output ".tmp/market_data/sol_custom.csv"
         """
     )
 
@@ -301,6 +328,9 @@ Examples:
     parser.add_argument('--start', type=str, help='Start date (YYYY-MM-DD) for historical fetch')
     parser.add_argument('--end', type=str, help='End date (YYYY-MM-DD) for historical fetch')
     parser.add_argument('--output', type=str, help='Output CSV path (default: .tmp/market_data/{ticker}_{tf}m.csv)')
+    parser.add_argument('--exchange', type=str, default='bybit',
+                        choices=['bybit', 'binance'],
+                        help='Exchange to use (default: bybit, fallback: binance)')
 
     args = parser.parse_args()
 
@@ -311,33 +341,59 @@ Examples:
         ticker_clean = args.ticker.replace('/', '_')
         output_path = f".tmp/market_data/{ticker_clean}_{args.timeframe}m.csv"
 
-    try:
-        # Fetch data (no API keys needed for public OHLCV data)
-        fetcher = BybitDataFetcher()
+    exchanges_to_try = [args.exchange]
+    # Add fallback exchange if primary fails
+    if args.exchange == 'bybit':
+        exchanges_to_try.append('binance')
+    elif args.exchange == 'binance':
+        exchanges_to_try.append('bybit')
 
-        df = fetcher.fetch_ohlcv(
-            ticker=args.ticker,
-            timeframe=args.timeframe,
-            limit=args.limit,
-            start_date=args.start,
-            end_date=args.end
-        )
+    df = None
+    last_error = None
 
-        # Save to CSV
-        save_to_csv(df, output_path)
+    for exchange in exchanges_to_try:
+        try:
+            logger.info(f"Trying {exchange}...")
+            fetcher = BybitDataFetcher(exchange=exchange)
 
-        # Print summary
-        print(f"\n✓ Successfully fetched {len(df)} candles")
-        print(f"  Ticker: {args.ticker}")
-        print(f"  Timeframe: {args.timeframe}m")
-        print(f"  Date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
-        print(f"  Output: {output_path}")
+            df = fetcher.fetch_ohlcv(
+                ticker=args.ticker,
+                timeframe=args.timeframe,
+                limit=args.limit,
+                start_date=args.start,
+                end_date=args.end
+            )
+            break  # Success, exit loop
 
-        return 0
+        except (ccxt.NetworkError, ccxt.ExchangeError) as e:
+            last_error = e
+            if '403' in str(e) or 'Forbidden' in str(e):
+                logger.warning(f"{exchange} blocked (geo-restriction), trying fallback...")
+                continue
+            else:
+                logger.error(f"{exchange} error: {e}")
+                continue
+        except Exception as e:
+            last_error = e
+            logger.error(f"{exchange} unexpected error: {e}")
+            continue
 
-    except Exception as e:
-        logger.error(f"Failed to fetch data: {e}")
+    if df is None:
+        logger.error(f"All exchanges failed. Last error: {last_error}")
         return 1
+
+    # Save to CSV
+    save_to_csv(df, output_path)
+
+    # Print summary
+    print(f"\n✓ Successfully fetched {len(df)} candles")
+    print(f"  Ticker: {args.ticker}")
+    print(f"  Timeframe: {args.timeframe}m")
+    print(f"  Exchange: {fetcher.exchange_name}")
+    print(f"  Date range: {df['timestamp'].min()} to {df['timestamp'].max()}")
+    print(f"  Output: {output_path}")
+
+    return 0
 
 
 if __name__ == '__main__':

@@ -96,7 +96,7 @@ jobs:
             --ticker "${{ steps.params.outputs.ticker }}" \
             --timeframe "15" \
             --limit $(( ${{ steps.params.outputs.days }} * 96 )) \
-            --exchange binance
+            --exchange binanceus
 
       - name: Calculate features
         run: |

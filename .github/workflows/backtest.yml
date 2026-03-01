@@ -83,7 +83,7 @@ jobs:
             --timeframe "15" \
             --start "${{ github.event.inputs.start_date }}" \
             --end "${{ github.event.inputs.end_date }}" \
-            --exchange binance
+            --exchange binanceus
 
       - name: Calculate features
         run: |

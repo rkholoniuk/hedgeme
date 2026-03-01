@@ -5,6 +5,7 @@ Fetch historical OHLCV data from crypto exchanges.
 Supports multiple exchanges via ccxt:
 - Bybit (default) - Higher rate limits, more pairs
 - Binance (fallback) - Works from GitHub Actions (Bybit blocks US IPs)
+- Binance US - For US-based users (use --exchange binanceus)
 
 Usage:
     # Supported tickers: BTCUSDT, ETHUSDT, SOLUSDT
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 class BybitDataFetcher:
     """Fetches OHLCV data from crypto exchanges with rate limit handling."""
 
-    SUPPORTED_EXCHANGES = ['bybit', 'binance']
+    SUPPORTED_EXCHANGES = ['bybit', 'binance', 'binanceus']
 
     def __init__(
         self,
@@ -74,6 +75,10 @@ class BybitDataFetcher:
             config['rateLimit'] = 100  # 10 req/sec
             config['options'] = {'defaultType': 'spot'}
             return ccxt.binance(config)
+        elif exchange_name.lower() == 'binanceus':
+            config['rateLimit'] = 100  # 10 req/sec
+            config['options'] = {'defaultType': 'spot'}
+            return ccxt.binanceus(config)
         else:
             raise ValueError(f"Unsupported exchange: {exchange_name}. Use: {self.SUPPORTED_EXCHANGES}")
 
@@ -329,8 +334,8 @@ Examples:
     parser.add_argument('--end', type=str, help='End date (YYYY-MM-DD) for historical fetch')
     parser.add_argument('--output', type=str, help='Output CSV path (default: .tmp/market_data/{ticker}_{tf}m.csv)')
     parser.add_argument('--exchange', type=str, default='bybit',
-                        choices=['bybit', 'binance'],
-                        help='Exchange to use (default: bybit, fallback: binance)')
+                        choices=['bybit', 'binance', 'binanceus'],
+                        help='Exchange to use (default: bybit, fallback: binance/binanceus)')
 
     args = parser.parse_args()
 
@@ -342,11 +347,13 @@ Examples:
         output_path = f".tmp/market_data/{ticker_clean}_{args.timeframe}m.csv"
 
     exchanges_to_try = [args.exchange]
-    # Add fallback exchange if primary fails
-    if args.exchange == 'bybit':
-        exchanges_to_try.append('binance')
-    elif args.exchange == 'binance':
-        exchanges_to_try.append('bybit')
+    # Add fallback exchanges if primary fails
+    fallbacks = {
+        'bybit': ['binance', 'binanceus'],
+        'binance': ['binanceus', 'bybit'],
+        'binanceus': ['binance', 'bybit'],
+    }
+    exchanges_to_try.extend(fallbacks.get(args.exchange, []))
 
     df = None
     last_error = None

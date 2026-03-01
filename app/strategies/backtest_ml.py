@@ -25,6 +25,7 @@ Usage:
 import argparse
 from pathlib import Path
 from datetime import datetime, timedelta
+import sys
 import logging
 import pandas as pd
 import matplotlib.pyplot as plt

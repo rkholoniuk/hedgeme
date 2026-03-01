@@ -317,9 +317,19 @@ class HTMLReportGenerator:
             return "console.log('Plotly not available');"
 
         # Prepare data
+        df = df.copy()
         df = df.reset_index()
         if 'timestamp' not in df.columns and 'index' in df.columns:
             df['timestamp'] = df['index']
+
+        # Normalize column names (handle both 'Open' and 'open')
+        # Only rename if lowercase version doesn't already exist
+        col_map = {
+            'Open': 'open', 'High': 'high', 'Low': 'low',
+            'Close': 'close', 'Volume': 'volume'
+        }
+        rename_cols = {k: v for k, v in col_map.items() if k in df.columns and v not in df.columns}
+        df.rename(columns=rename_cols, inplace=True)
 
         # Get buy and sell signals
         buy_signals = df[df.get('Signal_Final', df.get('signal', pd.Series([0]*len(df)))) == 1]

@@ -61,8 +61,11 @@ class HTMLReportGenerator:
         Returns:
             Path to generated HTML file
         """
-        # Generate charts
-        price_chart = self._create_price_signal_chart(df, trades_df)
+        # Generate charts (handle empty data gracefully)
+        if df.empty or 'open' not in df.columns and 'Open' not in df.columns:
+            price_chart = "console.log('No price data available');"
+        else:
+            price_chart = self._create_price_signal_chart(df, trades_df)
         equity_chart = self._create_equity_chart(results.get('equity_df', pd.DataFrame()))
         distribution_chart = self._create_trade_distribution_chart(trades_df)
         metrics_table = self._create_metrics_table(results)

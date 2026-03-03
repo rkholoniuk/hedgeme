@@ -24,7 +24,7 @@ load_dotenv()
 
 from app.strategies.lumibot_ml import MLVolumeStrategy
 from app.ml.lstm import VolumeLSTM
-from lumibot.brokers import Alpaca
+from lumibot.brokers import Ccxt
 from lumibot.traders import Trader
 
 # Configure logging
@@ -143,7 +143,7 @@ def ensure_lstm_model():
 # ============================================================================
 
 def setup_broker():
-    """Setup broker connection (Bybit via ccxt)"""
+    """Setup broker connection (Bybit via LumiBot Ccxt wrapper)"""
 
     api_key = os.getenv('BYBIT_API_KEY')
     api_secret = os.getenv('BYBIT_API_SECRET')
@@ -151,19 +151,20 @@ def setup_broker():
     if not api_key or not api_secret:
         raise ValueError("Missing BYBIT_API_KEY or BYBIT_API_SECRET in environment")
 
-    # Use ccxt for Bybit integration
-    import ccxt
-
-    broker = ccxt.bybit({
+    # Use LumiBot's Ccxt broker wrapper for proper integration
+    config = {
+        'exchange_id': 'bybit',
         'apiKey': api_key,
         'secret': api_secret,
-        'enableRateLimit': True,
+        'sandbox': False,  # Set to True for testnet
         'options': {
             'defaultType': 'spot',  # or 'linear' for USDT perpetuals
         }
-    })
+    }
 
-    logger.info("✅ Connected to Bybit")
+    broker = Ccxt(config)
+
+    logger.info("✅ Connected to Bybit via LumiBot Ccxt broker")
 
     return broker
 
